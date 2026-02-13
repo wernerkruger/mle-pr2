@@ -46,31 +46,31 @@ def serialize_image_data_handler(event, context):
 
 def classifier_handler(event, context):
     """Decode image from event, call SageMaker endpoint, return inferences."""
-    import sagemaker
-    from sagemaker.serializers import IdentitySerializer
+    import boto3
+    runtime = boto3.client("sagemaker-runtime")
+    ENDPOINT = "image-classification-2026-02-12-12-42-58-663"
 
-    ENDPOINT = "image-classification-YYYY-MM-DD-HH-MM-SS"  # TODO: set your endpoint name
 
-    # Event may be the direct state (from Step Functions $.body) or wrapped
-    body = event.get("body", event)
-    if isinstance(body, str):
-        body = json.loads(body)
-    image_b64 = body["image_data"]
+    # No json.loads needed
+    image_b64 = event["body"]["image_data"]
 
-    image = base64.b64decode(image_b64)
+    # Decode base64 → raw bytes
+    image_bytes = base64.b64decode(image_b64)
 
-    predictor = sagemaker.predictor.Predictor(
-        endpoint_name=ENDPOINT,
-        sagemaker_session=sagemaker.Session(),
+
+    response = runtime.invoke_endpoint(
+        EndpointName=ENDPOINT,
+        ContentType="application/x-image",
+        Body=image_bytes
     )
-    predictor.serializer = IdentitySerializer("image/png")
 
-    inferences = predictor.predict(image)
+    
 
-    body["inferences"] = inferences.decode("utf-8") if isinstance(inferences, bytes) else str(inferences)
+    result = response["Body"].read().decode("utf-8")
+
     return {
         "statusCode": 200,
-        "body": json.dumps(body),
+        "body": result
     }
 
 
@@ -87,13 +87,15 @@ def filter_confidence_handler(event, context):
     if isinstance(body, str):
         body = json.loads(body)
 
-    inferences_raw = body.get("inferences", [])
-    if isinstance(inferences_raw, str):
-        inferences = json.loads(inferences_raw)
-    else:
-        inferences = inferences_raw
+    print(body)
+    # return(body)
+    # inferences_raw = body.get("inferences", [])
+    # if isinstance(inferences_raw, str):
+    #     inferences = json.loads(inferences_raw)
+    # else:
+    #     inferences = inferences_raw
 
-    meets_threshold = max(inferences) >= THRESHOLD
+    meets_threshold = max(body) >= THRESHOLD
 
     if not meets_threshold:
         raise ValueError("THRESHOLD_CONFIDENCE_NOT_MET")
@@ -122,4 +124,4 @@ def lambda_handler(event, context):
         return classifier_handler(event, context)
     if "filter" in name.lower() or "confidence" in name.lower():
         return filter_confidence_handler(event, context)
-    return serialize_image_data_handler(event, context)
+    return {"body":"Not a valid function name was called", "status":401}
